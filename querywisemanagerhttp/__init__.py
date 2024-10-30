@@ -4,15 +4,32 @@ import openai
 import pyodbc
 import azure.functions as func
 from dotenv import load_dotenv
+from azure.cosmos import CosmosClient, exceptions
+
 
 # Cargar las variables de entorno
 load_dotenv()
 
 # Configuración de OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = "1812e548432b4265b772846a7fee00e0"
+openai.api_endpoint = "https://normalizaciondata.openai.azure.com"
+openai.api_url = f"{openai.api_endpoint}/openai/deployments/gpt-4-querywise/chat/completions?api-version=2024-08-01-preview"
+openai.api_type = "azure"
+openai.api_version = "2024-08-01-preview"
 
-# Configuración de la base de datos SQL
-connection_string = os.getenv("SQL_CONNECTION_STRING")
+# Nombre del despliegue (modelo)
+deployment_name = "gpt-4-querywise"
+
+# Configuración de Cosmos DB
+cosmos_url = os.getenv("COSMOS_DB_URL")
+cosmos_key = os.getenv("COSMOS_DB_KEY")
+cosmos_database_name = os.getenv("COSMOS_DB_DATABASE_NAME")
+cosmos_container_name = os.getenv("COSMOS_DB_CONTAINER_NAME")
+
+# Inicializar el cliente de Cosmos DB
+cosmos_client = CosmosClient(cosmos_url, credential=cosmos_key)
+database = cosmos_client.get_database_client(cosmos_database_name)
+container = database.get_container_client(cosmos_container_name)
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Procesando una solicitud HTTP para la función de QA.')
@@ -28,23 +45,36 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("La pregunta no puede estar vacía.", status_code=400)
 
     # Consultar la base de datos y construir el contexto
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": openai.api_key
+    }
+    data = {
+        "prompt": question,
+        "max_tokens": 100  # Limita el número de tokens en la respuesta
+    }
     try:
-        with pyodbc.connect(connection_string) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT context FROM FAQ")
-            context_data = " ".join([row[0] for row in cursor.fetchall()])
-    except Exception as e:
-        logging.error("Error al conectar con la base de datos: %s", e)
+        query = "SELECT c.id FROM c"
+        context_data = " ".join([item["id"] for item in container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        )])
+    except exceptions.CosmosHttpResponseError as e:
+        logging.error("Error al conectar con Cosmos DB: %s", e)
         return func.HttpResponse("Error de conexión con la base de datos.", status_code=500)
+
 
     # Realizar la consulta al modelo de OpenAI
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=f"{context_data}\nPregunta: {question}\nRespuesta:",
+        response = openai.ChatCompletion.create(
+            engine=deployment_name,
+            messages=[
+                {"role": "system", "content": context_data},
+                {"role": "user", "content": question}
+            ],
             max_tokens=100
         )
-        answer = response.choices[0].text.strip()
+        answer = response.choices[0].message['content'].strip()
         return func.HttpResponse(answer, status_code=200)
     except Exception as e:
         logging.error("Error al conectar con OpenAI: %s", e)
