@@ -11,14 +11,13 @@ from azure.cosmos import CosmosClient, exceptions
 load_dotenv()
 
 # Configuración de OpenAI
-openai.api_key = "1812e548432b4265b772846a7fee00e0"
-openai.api_endpoint = "https://normalizaciondata.openai.azure.com"
-openai.api_url = f"{openai.api_endpoint}/openai/deployments/gpt-4-querywise/chat/completions?api-version=2024-08-01-preview"
+openai.api_key = os.getenv("AZURE_OPENAI_API_KEY")
+openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
 openai.api_type = "azure"
 openai.api_version = "2024-08-01-preview"
 
 # Nombre del despliegue (modelo)
-deployment_name = "gpt-4-querywise"
+deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 
 # Configuración de Cosmos DB
 cosmos_url = os.getenv("COSMOS_DB_URL")
@@ -45,14 +44,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("La pregunta no puede estar vacía.", status_code=400)
 
     # Consultar la base de datos y construir el contexto
-    headers = {
-        "Content-Type": "application/json",
-        "api-key": openai.api_key
-    }
-    data = {
-        "prompt": question,
-        "max_tokens": 100  # Limita el número de tokens en la respuesta
-    }
     try:
         query = "SELECT c.id FROM c"
         context_data = " ".join([item["id"] for item in container.query_items(
