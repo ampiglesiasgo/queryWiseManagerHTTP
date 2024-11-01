@@ -45,11 +45,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # Consultar la base de datos y construir el contexto
     try:
-        query = "SELECT c.id FROM c"
-        context_data = " ".join([item["id"] for item in container.query_items(
+        query = "SELECT * FROM c"
+        #context_data = " ".join([item["id"] for item in container.query_items(
+        #   query=query,
+        #    enable_cross_partition_query=True
+        #)])
+        items = container.query_items(
             query=query,
             enable_cross_partition_query=True
-        )])
+        )
+
+        # Cargar todas las propiedades en context_data
+        context_data = "\n".join(
+            [
+                f"id: {item.get('id')}, Prop_0: {item.get('Prop_0')}, Prop_1: {item.get('Prop_1')}, "
+                f"Prop_2: {item.get('Prop_2')}, Prop_3: {item.get('Prop_3')}, Prop_4: {item.get('Prop_4')}, "
+                f"Prop_5: {item.get('Prop_5')}, Prop_6: {item.get('Prop_6')}"
+                for item in items
+            ]
+        )
     except exceptions.CosmosHttpResponseError as e:
         logging.error("Error al conectar con Cosmos DB: %s", e)
         return func.HttpResponse("Error de conexión con la base de datos.", status_code=500)
@@ -63,7 +77,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 {"role": "system", "content": context_data},
                 {"role": "user", "content": question}
             ],
-            max_tokens=100
+            max_tokens=1000
         )
         answer = response.choices[0].message['content'].strip()
         return func.HttpResponse(answer, status_code=200)
